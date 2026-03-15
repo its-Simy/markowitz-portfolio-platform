@@ -6,7 +6,7 @@ class calculations:
 
     def getWeights(self) -> None:
         passed = False
-        isZero = False
+        inValid = False
         while not passed:
             for name in self.df.columns:
                 if name == "timestamp":
@@ -19,13 +19,13 @@ class calculations:
                     except ValueError:
                         print("Only integers are valid inputs")
                 
-                if x == 0:
-                    isZero= True
+                if x <= 0:
+                    inValid= True
                 self.weights.append(x)
                         
-            if sum(self.weights) > 1 or sum(self.weights) < 1 or isZero:
+            if sum(self.weights) > 1 or sum(self.weights) < 1 or inValid:
                 self.weights = []
-                if(isZero):
+                if(inValid):
                     print("Invalid input(s), all vlaues must be greater than zero. Try Again")
                 else:
                     print("Invalid, must input decimals (floats) that sum up to 1, with none being 0. Try Again")
