@@ -4,6 +4,7 @@ import requests
 import io
 import pandas as pd
 
+
 class DataFetcher:
     def __init__(self,api_key:str):
         self.api_key = api_key
@@ -53,7 +54,4 @@ if __name__ == "__main__":
     data.clean("EFA","Tester_Data\\Barclays_data")
     data.clean("GOOG","Tester_Data\\Google_data")
     data.clean("IBM","Tester_Data\\Ibm_data")
-    print(data.df)
-
-
-
+    data.df.to_pickle("Tester_Data\\dataset.pkl")
