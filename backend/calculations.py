@@ -1,89 +1,124 @@
 import pandas as pd
-from decimal import *
-class calculations:
-    def __init__(self,df:pd.DataFrame):
-        self.df = df #time stamps are organized as smaller index = more recent
-        self.weights = [] #list of weights for the tickers, in order to the dataframe
-        self.assetReturns = []#list of calculated asset returns, in order to the dataframe
-        self.portfolioReturn = 0 # total estimated portfolio return
-        self.covarianceMatrix = []#2d list representing the covariance matrix.
-    
-    #ask user for the weights of each ticker
-    #total inputs must equal 1 (asks user for input again if result is over or under along with if inputs are not floats)
-    def getWeights(self) -> None:
-        passed = False
-        inValid = False
-        while not passed:
-            for name in self.df.columns:
-                if name == "timestamp":
-                    continue
-                x = -1
-                while True:
-                    try:
-                        x = float(input(f"What is the current weight for {name}: "))
-                        break
-                    except ValueError:
-                        print("Only integers are valid inputs")
-                
-                if x <= 0:
-                    inValid= True
-                self.weights.append(x)
-                        
-            if sum(self.weights) > 1 or sum(self.weights) < 1 or inValid:
-                self.weights = []
-                if(inValid):
-                    print("Invalid input(s), all vlaues must be greater than zero. Try Again")
-                else:
-                    print("Invalid, must input decimals (floats) that sum up to 1, with none being 0. Try Again")
-                isZero = False
-            else:
-                passed = True
-    #Calculated expected return of an asset within the portfolio
-    def expected_return_asset(self):
-        for label in self.df:
-            if label == 'timestamp':
-                continue
-            count = 0
-            total = 0
-            #backtrack since 99 is the latest item in the list. then skip it to have a prev
-            #consult prof about how to increase decimal accuracy? Floats won't cut it, but it should get most of the job done.
-            for price in reversed(self.df.index):
-                if count == 0:
-                    prev = self.df.loc[price,label]
-                    count += 1
-                    continue
-                #(current price - (current price location + 1)) / (current price location + 1)
-                current = self.df.loc[price,label]
-                day_price = (current - prev) / prev
-                prev = self.df.loc[price,label]
-                total += (day_price * 1/99)
-            self.assetReturns.append(total)
+import numpy as np
+import matplotlib.pyplot as plt
+import streamlit as st
+class Calculations:
 
-    #calculate Expected Return of portfolio
-    def expected_return_portfolio(self):
-        self.getWeights()
-        self.expected_return_asset()
-        for point in range(len(self.weights)):
-            self.portfolioReturn += (self.weights[point] * self.assetReturns[point])
+    def __init__(self,df):
+        self.df = df.iloc[::-1] # just makes the df items reverse, as we want to focus on latest to more recent
+        self.dailyReturns = self.df.iloc[:,1:].pct_change().dropna()# would calculate the returns, and drop the last item since it wouldn't have any, and skips first col to avoid any attempt to do math on strings
+        self.meanReturns = self.dailyReturns.mean() #takes mean of each column and returns a series with the returns
+        self.covMatrix = self.dailyReturns.cov()#uses the built in covariance matrix method
+        self.numObservations = len(self.dailyReturns)#how many daily returns days we see
+        self.riskFreeRate = .0369 #needs to be made dynamic!!
 
-    
-    def covariance_Calculations(self):
-        #covariance matrix is split into two parts
-        #the main diagonal ([1][1],[2][2],...[n][n]) should consist of variants per asset
-        #uses the equation (Summation of (daily return * average return)^2 / number of observations
-        #For non diagonals which are covariants, we use the following equation
-        #(summation of (daily return of asset 1 - mean return of asset 1)* (daily return of asset 2 - mean return of asset 2)) / number of observations aka number of items - 1
-        # asset 1 in this case would be whatever the main diagonal asset we are currently on for that row, asset 2 would be whatever col we are on.
+
+    def minimum_variance_portfolio(self):
+        #if this isn't possible we must do the Moore-Penrose pseudoinverse, this is because that would imply the matrix is singular
+        try:
+            inverseCovariance = np.linalg.inv(np.array(self.covarianceMatrix))
+        except np.linalg.LinAlgError:
+            inverseCovariance = np.linalg.pinv(np.array(self.covarianceMatrix))
         
+        ones = np.ones(len(self.weights))
+        mvp = (inverseCovariance.dot(ones)) / ((ones[:np.newaxis].dot(inverseCovariance)).dot(ones))
+        self.mvp = mvp
+
+    #-------performance calculations-----------
+    def portfolio_annualized_performance(self,meanReturns,weights,covMatrix):
+        returns = np.sum(meanReturns * weights) * 252 #multiplies it by the estimated 252 trading days
+        std = np.sqrt(np.dot(weights.T,np.dot(covMatrix,weights)))* np.sqrt(252)
+        #Square root of (weights transpose * (covariance matrix * weights)) * square root of 252
+        return std,returns
+    
+    #STILL NEEDS TO BE FIXED
+    def sharpe_ratio(self):
+        #.0369 is the us treasury bond 3 month maturity rate, in the future remove hard coding of this, only hard coded for testing purposes, also we are dividing since we are using daily returns we must have daily rate
+        return (self.portfolioReturn - (.0369 / 252)) / self.portfolio_standard_deviation()
+
+    #------PLOTS--------
+    def plotAssetReturns(self):
+        plt.figure(figsize=(14,7))
+        for label in self.df.iloc[:,1:]:
+            plt.plot(self.dailyReturns.loc[:,label], linewidth=2.0, label=label)
+        plt.title("Asset Returns Over Time")
+        plt.legend(loc='upper left', fontsize=12)
+        plt.ylabel("Daily Return")
+        st.pyplot(plt)
+    
+    def plotAssets(self):
+        plt.figure(figsize=(14,7))
+        plotData = self.df[::-1]
+        for c in plotData.columns[1:].values:
+            plt.plot(self.df.index, plotData[c], lw=3, alpha=0.8,label=c)
+        plt.title("Asset Pricing Over Time")
+        plt.legend(loc='upper left', fontsize=12)
+        plt.ylabel('price in $')
+        st.pyplot(plt)
+    
+    def plotFrontier(self,results,weights):
+        maxSharpeIndex = np.argmax(results[2])
+        stdBestPortfolio = results[0,maxSharpeIndex]
+        returnPortfolio = results[1,maxSharpeIndex]
+        max_sharpe_allocation = pd.DataFrame(weights[maxSharpeIndex],index=self.df.columns[1:],columns=['allocation'])
+        max_sharpe_allocation.allocation = [round(i*100,2)for i in max_sharpe_allocation.allocation]
+        max_sharpe_allocation = max_sharpe_allocation.T
+        min_vol_idx = np.argmin(results[0])
+        sdp_min, rp_min = results[0,min_vol_idx], results[1,min_vol_idx]
+        min_vol_allocation = pd.DataFrame(weights[min_vol_idx],index=self.df.columns[1:],columns=['allocation'])
+        min_vol_allocation.allocation = [round(i*100,2)for i in min_vol_allocation.allocation]
+        min_vol_allocation = min_vol_allocation.T
+        
+        print("-"*80)
+        print("Maximum Sharpe Ratio Portfolio Allocation\n")
+        print("Annualised Return:", round(returnPortfolio,2))
+        print("Annualised Volatility:", round(stdBestPortfolio,2))
+        print("\n")
+        print(max_sharpe_allocation)
+        print("-"*80)
+        print("Minimum Volatility Portfolio Allocation\n")
+        print("Annualised Return:", round(rp_min,2))
+        print("Annualised Volatility:", round(sdp_min,2))
+        print("\n")
+        print(min_vol_allocation)
+
+        plt.figure(figsize=(10, 7))
+        plt.scatter(results[0,:],results[1,:],c=results[2,:],cmap='RdYlGn', marker='o', s=10, alpha=0.3)
+        plt.colorbar()
+        plt.scatter(stdBestPortfolio,returnPortfolio,marker='.',color='r',s=500, label='Maximum Sharpe ratio')
+        plt.scatter(sdp_min,rp_min,marker='.',color='b',s=500, label='Minimum volatility')
+        plt.title('Simulated Portfolio Optimization based on Efficient Frontier')
+        plt.xlabel('annualised volatility')
+        plt.ylabel('annualised returns')
+        plt.legend(labelspacing=0.8)
+        st.pyplot(plt)
         
 
+    #---------general simulation--------
+    #portfolio_annualized_performance(self,meanReturns,weights,covMatrix):
+    def populateSimulation(self,numPortfolios: int,meanReturns,covarianceMatrix):
+        results = np.zeros((3,numPortfolios))
+        weights_record = []
+        for i in range(numPortfolios):
+            weights = np.random.random(len(self.df.columns)-1) #creates random weights for all the assets
+            weights /= np.sum(weights)
+            weights_record.append(weights)
+            portfolioStdDev, portfolioReturn = self.portfolio_annualized_performance(meanReturns,weights,covarianceMatrix)
+            results[0,i] = portfolioStdDev
+            results[1,i] = portfolioReturn
+            results[2,i] = (portfolioReturn - self.riskFreeRate) / portfolioStdDev
+        return results,weights_record
+    
+    #-------Begins Simulation-------------
+    def simulationStart(self, numPortfolios: int):
+        self.plotAssets()
+        self.plotAssetReturns()
+        results,weights = self.populateSimulation(numPortfolios,self.meanReturns,self.covMatrix)
+        self.plotFrontier(results,weights)
+
+#-----main-------
 if __name__ == "__main__":
-    info = calculations(pd.read_pickle("Tester_Data\\dataset.pkl"))    
-    info.expected_return_portfolio()
-    print("Asset Weights: ",info.weights)
-    print("Asset Returns: ",info.assetReturns)
-    print("Return: ",info.portfolioReturn)
+    info = Calculations(pd.read_pickle("Tester_Data\\dataset.pkl"))   
+    print(info.df)
+    info.simulationStart(25000)
     
-
-
-
