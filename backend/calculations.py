@@ -1,3 +1,4 @@
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -118,7 +119,8 @@ class Calculations:
 
 #-----main-------
 if __name__ == "__main__":
-    info = Calculations(pd.read_pickle("Tester_Data\\dataset.pkl"))   
+    DATA_PATH = Path(__file__).resolve().parent.parent / "Tester_Data" / "dataset.pkl"
+    info = Calculations(pd.read_pickle(DATA_PATH))
     print(info.df)
     info.simulationStart(25000)
     
